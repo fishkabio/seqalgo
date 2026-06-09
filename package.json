@@ -1,0 +1,86 @@
+{
+  "name": "@fishka/seqalgo",
+  "description": "Sequence algorithms for bioinformatics — pairwise alignment (Needleman-Wunsch / EMBOSS-compatible) and related sequence analysis utilities",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "private": false,
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "clean": "rimraf ./dist",
+    "lint": "eslint .",
+    "format": "prettier --write \"./**/*.{ts,js,md,json}\"",
+    "test": "jest",
+    "typecheck": "tsc --noEmit",
+    "release": "npm run lint && npm run test && npm run build && npm publish"
+  },
+  "dependencies": {
+    "@fishka/assertions": "^1.0.1"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.19.0",
+    "@typescript-eslint/eslint-plugin": "^8.52.0",
+    "@typescript-eslint/parser": "^8.52.0",
+    "eslint": "^9.39.2",
+    "eslint-plugin-unused-imports": "^4.3.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.7.4",
+    "prettier-plugin-organize-imports": "^4.3.0",
+    "rimraf": "^6.1.2",
+    "ts-jest": "^29.4.6",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "files": [
+    "dist/**/*",
+    "index.ts"
+  ],
+  "keywords": [
+    "bioinformatics",
+    "sequence",
+    "alignment",
+    "needleman-wunsch",
+    "needle",
+    "emboss",
+    "ednafull",
+    "pairwise-alignment",
+    "dna",
+    "mtdna"
+  ],
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./needle": {
+      "import": {
+        "types": "./dist/needle/index.d.mts",
+        "default": "./dist/needle/index.mjs"
+      },
+      "require": {
+        "types": "./dist/needle/index.d.ts",
+        "default": "./dist/needle/index.js"
+      }
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitea.com/fishka/seqalgo.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
