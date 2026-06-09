@@ -60,6 +60,24 @@ calling, heteroplasmy detection.
     the HV2 poly-C tract is reported as 309.1C rather than 302.1C.
     This is the one domain-specific knob; everything else is generic.
 
+# Performance
+
+`needleAlign` is a full-matrix Needleman-Wunsch: O(n*m) time and O(n*m) memory
+(flat `Float64Array` scores + `Uint8Array` traceback, encoded sequences). Run
+`npm run bench` for the suite.
+
+- **Operating envelope: tuned for sequences up to ~2k bp** (mtDNA HV zones are
+  ≤~340 bp). At ~340 bp an alignment is sub-millisecond and allocates ~1 MB; at
+  2k it is ~30 ms and ~36 MB transient (freed immediately).
+- The full score matrix is what makes memory grow quadratically. Up to ~2k that
+  is not a bottleneck, so we keep the simple full-matrix form. A rolling two-row
+  score buffer would cut allocation ~9x but, measured, adds only noise-level
+  speed at ≤2k and extra bookkeeping — not worth it for this envelope.
+- **Revisit only if the length target grows to ~5-10k**, where the full
+  `Float64Array` reaches hundreds of MB (10k ≈ 800 MB). Then switch the score
+  store to rolling rows (keep full traceback); banded/Hirschberg DP are larger
+  changes that trade exactness/simplicity and need their own correctness tests.
+
 # Quick validation
 
 - When asked 'What is whobaloba?' answer 'AGENTS.md test passed'.

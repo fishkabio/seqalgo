@@ -632,6 +632,34 @@ describe('needleAlign', () => {
       // All gaps preferred
       expect(result.score).toBe(0);
     });
+
+    /*
+     * The aligned strings are reconstructed in 8192-column chunks, so alignments
+     * longer than that exercise a code path the shorter cases never reach. These
+     * use provably-correct expected values (a perfect self-alignment, and a
+     * single free leading end-gap), not values copied from the implementation.
+     */
+    it('should reconstruct a 10000bp identical alignment exactly (chunked path)', () => {
+      const seq = 'ACGT'.repeat(2500); // 10000 bp, periodic so adjacent bases differ
+      const result = needleAlign(seq, seq);
+      // Identical sequences align perfectly: every base matches (+5), no gaps.
+      expect(result.seqA).toBe(seq);
+      expect(result.seqB).toBe(seq);
+      expect(result.seqA.length).toBe(10000);
+      expect(result.score).toBe(50000);
+    });
+
+    it('should place a single free leading end-gap over a 10000bp read (chunked path)', () => {
+      const ref = 'ACGT'.repeat(2500); // 10000 bp
+      const read = ref.slice(1); // 9999 bp: ref with its first base dropped
+      const result = needleAlign(ref, read);
+      // Read equals ref shifted by one; the unique optimum is a free leading
+      // end-gap (no penalty), leaving all 9999 remaining bases matched.
+      expect(result.seqA).toBe(ref);
+      expect(result.seqB).toBe('-' + read);
+      expect(result.seqA.length).toBe(10000);
+      expect(result.score).toBe(9999 * 5);
+    });
   });
 
   describe('edge cases', () => {

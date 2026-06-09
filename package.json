@@ -1,7 +1,7 @@
 {
   "name": "@fishka/seqalgo",
   "description": "Sequence algorithms for bioinformatics — pairwise alignment (Needleman-Wunsch / EMBOSS-compatible) and related sequence analysis utilities",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -14,6 +14,7 @@
     "lint": "eslint .",
     "format": "prettier --write \"./**/*.{ts,js,md,json}\"",
     "test": "jest",
+    "bench": "npm run build && node --expose-gc bench/needle.bench.cjs",
     "typecheck": "tsc --noEmit",
     "release": "npm run lint && npm run test && npm run build && npm publish"
   },

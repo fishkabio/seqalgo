@@ -19,6 +19,11 @@ import { assertTruthy } from '@fishka/assertions';
  *   (Parson et al. 2014, §3.2 and rule #3 on p. 137). Within homopolymer/repeat
  *   tracts the gap is anchored to the 3' end of the run, so the same extra C is
  *   reported as 309.1C, not 302.1C.
+ *
+ * Implementation notes: sequences are encoded to integer codes once (O(n+m)),
+ * the scoring matrix is a flat Int8Array, and the DP tables are flat typed
+ * arrays (Float64Array scores + Uint8Array traceback). This keeps memory at one
+ * contiguous (n+1)*(m+1) block per table and avoids per-cell string/object work.
  */
 
 /** Where to anchor indels within homopolymer/repeat tracts at score ties. */
@@ -91,19 +96,42 @@ const EDNAFULL_MATRIX: Record<IupacCode, Record<IupacCode, number>> = {
   N: { A: -2, T: -2, G: -2, C: -2, S: -1, W: -1, R: -1, Y: -1, K: -1, M: -1, B: -1, V: -1, H: -1, D: -1, N: -1 },
 };
 
+/** Number of IUPAC codes (15). 'N' is the last index and the fallback code. */
+const N_CODES = IUPAC_CODES.length;
+
 /**
- * Get the EDNAFULL score for a pair of nucleotides.
- * Unknown characters are treated as 'N' (score -2 with any).
+ * Flat EDNAFULL scoring matrix: score(a, b) = FLAT_SCORE[a * N_CODES + b], where
+ * a and b are the integer codes assigned by CHAR_TO_CODE. Built once from
+ * EDNAFULL_MATRIX so the inner DP loop is a single typed-array read.
  */
-function getEdnafullScore(a: string, b: string): number {
-  const upperA = a.toUpperCase() as IupacCode;
-  const upperB = b.toUpperCase() as IupacCode;
+const FLAT_SCORE: Int8Array = ((): Int8Array => {
+  const flat = new Int8Array(N_CODES * N_CODES);
+  for (let a = 0; a < N_CODES; a++) {
+    const rowName = IUPAC_CODES[a] as IupacCode;
+    for (let b = 0; b < N_CODES; b++) {
+      flat[a * N_CODES + b] = EDNAFULL_MATRIX[rowName][IUPAC_CODES[b] as IupacCode];
+    }
+  }
+  return flat;
+})();
 
-  // Treat unknown characters as 'N'
-  const codeA = IUPAC_CODES.includes(upperA) ? upperA : 'N';
-  const codeB = IUPAC_CODES.includes(upperB) ? upperB : 'N';
+/**
+ * Maps an (uppercase) ASCII char code to its IUPAC integer code. Anything not in
+ * IUPAC_CODES maps to 'N' — matching the original "unknown is treated as N"
+ * behavior (dead in practice, since preprocessSequence emits only IUPAC chars).
+ */
+const CHAR_TO_CODE: Int8Array = ((): Int8Array => {
+  const map = new Int8Array(256).fill(N_CODES - 1); // default to 'N'
+  for (let i = 0; i < N_CODES; i++) map[IUPAC_CODES.charCodeAt(i)] = i;
+  return map;
+})();
 
-  return EDNAFULL_MATRIX[codeA][codeB];
+/** Encodes a preprocessed sequence to IUPAC integer codes, O(length). */
+function encodeSequence(seq: string): Int8Array {
+  const len = seq.length;
+  const out = new Int8Array(len);
+  for (let i = 0; i < len; i++) out[i] = CHAR_TO_CODE[seq.charCodeAt(i) & 0xff];
+  return out;
 }
 
 /**
@@ -153,204 +181,12 @@ function preprocessSequence(seq: string): string {
   return result;
 }
 
-/** Type for traceback matrix cells */
-type TracebackDirection = 'M' | 'X' | 'Y' | null;
+/** Traceback directions (stored in a Uint8Array). 0 is the unset/origin value. */
+const DIAG = 1; // 'M' — match/mismatch
+const LEFT = 2; // 'X' — gap in seqA (insertion in seqB)
+const UP = 3; // 'Y' — gap in seqB (deletion in seqA)
 
-/** Matrices for Needleman-Wunsch algorithm */
-interface AlignmentMatrices {
-  score: number[][];
-  traceback: TracebackDirection[][];
-}
-
-/**
- * Initializes score and traceback matrices for Needleman-Wunsch algorithm.
- * No penalty for end gaps (EMBOSS needle default behavior).
- */
-function initializeMatrices(lenA: number, lenB: number): AlignmentMatrices {
-  const score: number[][] = Array(lenA + 1)
-    .fill(null)
-    .map(() => Array(lenB + 1).fill(0));
-
-  const traceback: TracebackDirection[][] = Array(lenA + 1)
-    .fill(null)
-    .map(() => Array(lenB + 1).fill(null));
-
-  // Initialize origin
-  score[0][0] = 0;
-  traceback[0][0] = null;
-
-  // Initialize first column (gaps at beginning of seqB)
-  for (let i = 1; i <= lenA; i++) {
-    score[i][0] = 0;
-    traceback[i][0] = 'Y';
-  }
-
-  // Initialize first row (gaps at beginning of seqA)
-  for (let j = 1; j <= lenB; j++) {
-    score[0][j] = 0;
-    traceback[0][j] = 'X';
-  }
-
-  return { score, traceback };
-}
-
-/**
- * Calculates the score for a cell in the alignment matrix.
- * Uses affine gap penalty: gapOpen for new gaps, gapExtend for extended gaps.
- *
- * The tie-break order decides indel placement within equally-scoring alignments.
- * Traceback walks from bottom-right to top-left, so:
- * - '3-prime' uses X > Y > M (prefer gaps over match), pushing gaps to the 3'
- *   end of homopolymer/repeat runs — the ISFG mtDNA notation convention.
- * - '5-prime' uses M > Y > X (prefer match over gaps), anchoring gaps to the 5'
- *   end — the EMBOSS-needle default.
- */
-function calculateCellScore(
-  matchScore: number,
-  scoreMatrix: number[][],
-  tracebackMatrix: TracebackDirection[][],
-  i: number,
-  j: number,
-  gapOpen: number,
-  gapExtend: number,
-  gapAnchor: GapAnchor,
-): { score: number; direction: TracebackDirection } {
-  // Score from diagonal (match/mismatch).
-  const diagScore = scoreMatrix[i - 1][j - 1] + matchScore;
-
-  // Score from above (gap in seqB, deletion in seqA).
-  const isExtendingGapUp = tracebackMatrix[i - 1][j] === 'Y';
-  const upScore = scoreMatrix[i - 1][j] - (isExtendingGapUp ? gapExtend : gapOpen);
-
-  // Score from left (gap in seqA, insertion in seqB).
-  const isExtendingGapLeft = tracebackMatrix[i][j - 1] === 'X';
-  const leftScore = scoreMatrix[i][j - 1] - (isExtendingGapLeft ? gapExtend : gapOpen);
-
-  if (gapAnchor === '3-prime') {
-    // X > Y > M tie-break (3'-shifted indels).
-    if (leftScore >= diagScore && leftScore >= upScore) {
-      return { score: leftScore, direction: 'X' };
-    }
-    if (upScore >= diagScore) {
-      return { score: upScore, direction: 'Y' };
-    }
-    return { score: diagScore, direction: 'M' };
-  }
-
-  // '5-prime': M > Y > X tie-break (5'-anchored indels, EMBOSS default).
-  if (diagScore >= leftScore && diagScore >= upScore) {
-    return { score: diagScore, direction: 'M' };
-  }
-  if (upScore >= leftScore) {
-    return { score: upScore, direction: 'Y' };
-  }
-  return { score: leftScore, direction: 'X' };
-}
-
-/**
- * Finds the optimal ending position allowing for end gaps without penalty.
- */
-function findOptimalEndPosition(
-  scoreMatrix: number[][],
-  lenA: number,
-  lenB: number,
-): { maxScore: number; endI: number; endJ: number } {
-  let maxScore = scoreMatrix[lenA][lenB];
-  let endI = lenA;
-  let endJ = lenB;
-
-  // Check last row (end gaps in seqA)
-  for (let j = 0; j <= lenB; j++) {
-    if (scoreMatrix[lenA][j] > maxScore) {
-      maxScore = scoreMatrix[lenA][j];
-      endI = lenA;
-      endJ = j;
-    }
-  }
-
-  // Check last column (end gaps in seqB)
-  for (let i = 0; i <= lenA; i++) {
-    if (scoreMatrix[i][lenB] > maxScore) {
-      maxScore = scoreMatrix[i][lenB];
-      endI = i;
-      endJ = lenB;
-    }
-  }
-
-  return { maxScore, endI, endJ };
-}
-
-/**
- * Performs traceback to construct aligned sequences.
- */
-function performTraceback(
-  tracebackMatrix: TracebackDirection[][],
-  seqA: string,
-  seqB: string,
-  endI: number,
-  endJ: number,
-): { alignedA: string; alignedB: string } {
-  let alignedA = '';
-  let alignedB = '';
-  let i = endI;
-  let j = endJ;
-
-  // Traceback from end to beginning
-  while (i > 0 || j > 0) {
-    const direction = tracebackMatrix[i][j];
-
-    if (direction === 'M' && i > 0 && j > 0) {
-      alignedA = seqA[i - 1] + alignedA;
-      alignedB = seqB[j - 1] + alignedB;
-      i--;
-      j--;
-    } else if (direction === 'Y' && i > 0) {
-      alignedA = seqA[i - 1] + alignedA;
-      alignedB = '-' + alignedB;
-      i--;
-    } else if (direction === 'X' && j > 0) {
-      alignedA = '-' + alignedA;
-      alignedB = seqB[j - 1] + alignedB;
-      j--;
-    } else if (i > 0) {
-      // Fallback: gap in seqB
-      alignedA = seqA[i - 1] + alignedA;
-      alignedB = '-' + alignedB;
-      i--;
-    } else if (j > 0) {
-      // Fallback: gap in seqA
-      alignedA = '-' + alignedA;
-      alignedB = seqB[j - 1] + alignedB;
-      j--;
-    } else {
-      break;
-    }
-  }
-
-  // Add leading gaps (if we started after position 0,0)
-  while (i > 0) {
-    alignedA = seqA[i - 1] + alignedA;
-    alignedB = '-' + alignedB;
-    i--;
-  }
-  while (j > 0) {
-    alignedA = '-' + alignedA;
-    alignedB = seqB[j - 1] + alignedB;
-    j--;
-  }
-
-  // Add trailing gaps (if we ended before full length)
-  for (let k = endI; k < seqA.length; k++) {
-    alignedA = alignedA + seqA[k];
-    alignedB = alignedB + '-';
-  }
-  for (let k = endJ; k < seqB.length; k++) {
-    alignedA = alignedA + '-';
-    alignedB = alignedB + seqB[k];
-  }
-
-  return { alignedA, alignedB };
-}
+const GAP_CHAR = 45; // '-'
 
 /**
  * Performs Needleman-Wunsch global alignment.
@@ -368,44 +204,173 @@ export function needleAlign(seqA: string, seqB: string, options: NeedleOptions =
   assertTruthy(seqA && seqA.length > 0, 'Reference sequence is empty');
   assertTruthy(seqB && seqB.length > 0, 'Read sequence is empty');
 
-  // Preprocess sequences for EMBOSS compatibility
+  // Preprocess for EMBOSS compatibility, then encode once for scoring.
   const processedA = preprocessSequence(seqA);
   const processedB = preprocessSequence(seqB);
+  const codeA = encodeSequence(processedA);
+  const codeB = encodeSequence(processedB);
 
-  const lenA = processedA.length;
-  const lenB = processedB.length;
+  const lenA = codeA.length;
+  const lenB = codeB.length;
+  const width = lenB + 1;
 
-  // Initialize alignment matrices
-  const { score: scoreMatrix, traceback: tracebackMatrix } = initializeMatrices(lenA, lenB);
+  // Flat DP tables. Float64Array starts zero-filled, matching the no-end-gap
+  // initialization (first row/column scores are 0).
+  const score = new Float64Array((lenA + 1) * width);
+  const traceback = new Uint8Array((lenA + 1) * width);
 
-  // Fill matrices using dynamic programming
+  // First column: gaps at the beginning of seqB (UP). First row: gaps at the
+  // beginning of seqA (LEFT). Origin stays NONE.
+  for (let i = 1; i <= lenA; i++) traceback[i * width] = UP;
+  for (let j = 1; j <= lenB; j++) traceback[j] = LEFT;
+
+  const prefer3Prime = gapAnchor === '3-prime';
+
+  // Fill the matrices. Tie-break order decides indel placement:
+  //   3-prime → LEFT > UP > DIAG (gaps pushed to the 3' end of repeats).
+  //   5-prime → DIAG > UP > LEFT (gaps anchored to the 5' end, EMBOSS default).
   for (let i = 1; i <= lenA; i++) {
+    const rowBase = i * width;
+    const prevBase = rowBase - width;
+    const aCode = codeA[i - 1] * N_CODES;
     for (let j = 1; j <= lenB; j++) {
-      const matchScore = getEdnafullScore(processedA[i - 1], processedB[j - 1]);
-      const { score, direction } = calculateCellScore(
-        matchScore,
-        scoreMatrix,
-        tracebackMatrix,
-        i,
-        j,
-        gapOpen,
-        gapExtend,
-        gapAnchor,
-      );
-      scoreMatrix[i][j] = score;
-      tracebackMatrix[i][j] = direction;
+      const diagScore = score[prevBase + j - 1] + FLAT_SCORE[aCode + codeB[j - 1]];
+      const upScore = score[prevBase + j] - (traceback[prevBase + j] === UP ? gapExtend : gapOpen);
+      const leftScore = score[rowBase + j - 1] - (traceback[rowBase + j - 1] === LEFT ? gapExtend : gapOpen);
+
+      let cellScore: number;
+      let dir: number;
+      if (prefer3Prime) {
+        if (leftScore >= diagScore && leftScore >= upScore) {
+          cellScore = leftScore;
+          dir = LEFT;
+        } else if (upScore >= diagScore) {
+          cellScore = upScore;
+          dir = UP;
+        } else {
+          cellScore = diagScore;
+          dir = DIAG;
+        }
+      } else if (diagScore >= leftScore && diagScore >= upScore) {
+        cellScore = diagScore;
+        dir = DIAG;
+      } else if (upScore >= leftScore) {
+        cellScore = upScore;
+        dir = UP;
+      } else {
+        cellScore = leftScore;
+        dir = LEFT;
+      }
+
+      score[rowBase + j] = cellScore;
+      traceback[rowBase + j] = dir;
     }
   }
 
-  // Find optimal end position (allowing end gaps)
-  const { maxScore, endI, endJ } = findOptimalEndPosition(scoreMatrix, lenA, lenB);
+  // Optimal end position, allowing end gaps without penalty: best of the corner,
+  // the last row (end gaps in seqA) and the last column (end gaps in seqB).
+  let maxScore = score[lenA * width + lenB];
+  let endI = lenA;
+  let endJ = lenB;
+  const lastRow = lenA * width;
+  for (let j = 0; j <= lenB; j++) {
+    if (score[lastRow + j] > maxScore) {
+      maxScore = score[lastRow + j];
+      endI = lenA;
+      endJ = j;
+    }
+  }
+  for (let i = 0; i <= lenA; i++) {
+    if (score[i * width + lenB] > maxScore) {
+      maxScore = score[i * width + lenB];
+      endI = i;
+      endJ = lenB;
+    }
+  }
 
-  // Traceback to construct aligned sequences
-  const { alignedA, alignedB } = performTraceback(tracebackMatrix, processedA, processedB, endI, endJ);
+  const { seqA: alignedA, seqB: alignedB } = buildAlignedSequences(
+    traceback,
+    processedA,
+    processedB,
+    width,
+    endI,
+    endJ,
+  );
+  return { seqA: alignedA, seqB: alignedB, score: maxScore };
+}
 
-  return {
-    seqA: alignedA,
-    seqB: alignedB,
-    score: maxScore,
-  };
+/**
+ * Reconstructs the aligned strings from the traceback table without quadratic
+ * string concatenation: columns are pushed into arrays of char codes in 3'→5'
+ * order, reversed once, then the trailing end-gap columns are appended.
+ */
+function buildAlignedSequences(
+  traceback: Uint8Array,
+  seqA: string,
+  seqB: string,
+  width: number,
+  endI: number,
+  endJ: number,
+): { seqA: string; seqB: string } {
+  const revA: number[] = [];
+  const revB: number[] = [];
+  let i = endI;
+  let j = endJ;
+
+  // Walk from (endI, endJ) back to the origin, recording columns in reverse.
+  while (i > 0 || j > 0) {
+    const dir = traceback[i * width + j];
+    if (dir === DIAG && i > 0 && j > 0) {
+      revA.push(seqA.charCodeAt(i - 1));
+      revB.push(seqB.charCodeAt(j - 1));
+      i--;
+      j--;
+    } else if (dir === UP && i > 0) {
+      revA.push(seqA.charCodeAt(i - 1));
+      revB.push(GAP_CHAR);
+      i--;
+    } else if (dir === LEFT && j > 0) {
+      revA.push(GAP_CHAR);
+      revB.push(seqB.charCodeAt(j - 1));
+      j--;
+    } else if (i > 0) {
+      // Fallback: gap in seqB.
+      revA.push(seqA.charCodeAt(i - 1));
+      revB.push(GAP_CHAR);
+      i--;
+    } else if (j > 0) {
+      // Fallback: gap in seqA.
+      revA.push(GAP_CHAR);
+      revB.push(seqB.charCodeAt(j - 1));
+      j--;
+    } else {
+      break;
+    }
+  }
+
+  revA.reverse();
+  revB.reverse();
+
+  // Trailing end gaps (if we ended before the full length), appended at the 3' end.
+  for (let k = endI; k < seqA.length; k++) {
+    revA.push(seqA.charCodeAt(k));
+    revB.push(GAP_CHAR);
+  }
+  for (let k = endJ; k < seqB.length; k++) {
+    revA.push(GAP_CHAR);
+    revB.push(seqB.charCodeAt(k));
+  }
+
+  return { seqA: codesToString(revA), seqB: codesToString(revB) };
+}
+
+/** Joins char codes into a string in chunks (avoids apply() arg-count limits). */
+function codesToString(codes: number[]): string {
+  const CHUNK = 8192;
+  if (codes.length <= CHUNK) return String.fromCharCode(...codes);
+  let out = '';
+  for (let i = 0; i < codes.length; i += CHUNK) {
+    out += String.fromCharCode(...codes.slice(i, i + CHUNK));
+  }
+  return out;
 }
