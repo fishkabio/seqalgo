@@ -75,6 +75,16 @@
         "types": "./dist/needle/index.d.ts",
         "default": "./dist/needle/index.js"
       }
+    },
+    "./sequence": {
+      "import": {
+        "types": "./dist/sequence/index.d.mts",
+        "default": "./dist/sequence/index.mjs"
+      },
+      "require": {
+        "types": "./dist/sequence/index.d.ts",
+        "default": "./dist/sequence/index.js"
+      }
     }
   },
   "repository": {

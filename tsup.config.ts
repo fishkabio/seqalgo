@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: 'index.ts',
     'needle/index': 'src/needle/index.ts',
+    'sequence/index': 'src/sequence/index.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,
