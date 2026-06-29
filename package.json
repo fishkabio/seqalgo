@@ -1,7 +1,7 @@
 {
   "name": "@fishka/seqalgo",
   "description": "Sequence algorithms for bioinformatics — pairwise alignment (Needleman-Wunsch / EMBOSS-compatible) and related sequence analysis utilities",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

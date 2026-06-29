@@ -9,6 +9,10 @@ Currently supports:
 - **Needleman-Wunsch global alignment** — pairwise DNA alignment with the
   EDNAFULL (NUC4.4) scoring matrix and full IUPAC ambiguity-code support. Scores
   are 100% compatible with EMBOSS `needle`.
+- **Reverse-complement** — of a sequence (`reverseComplement`, IUPAC-aware,
+  case-preserving) and of a chromatogram (`reverseComplementChromatogram`: swaps
+  A/T and C/G channels, reverses the trace, mirrors peak positions and
+  confidences; reversible, never a re-basecall).
 
 Planned: alignment post-processing utilities, mutation classification, consensus
 calling, heteroplasmy detection.

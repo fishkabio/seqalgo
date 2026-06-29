@@ -12,6 +12,9 @@ calling, heteroplasmy detection.
 
 ```
 ├── src/needle/         Needleman-Wunsch global alignment (EDNAFULL / EMBOSS-compatible)
+├── src/alignment/      Alignment post-processing (gaps, coordinates, combine)
+├── src/sequence/       Sequence primitives (gaps, IUPAC, reverse-complement)
+├── src/chromatogram/   Chromatogram transforms (reverse-complement of a trace)
 ├── tests/              Jest unit tests mirroring src/
 ├── dist/               Build output (ESM + CJS + d.ts), generated, gitignored
 ├── index.ts            Root re-export of src/
