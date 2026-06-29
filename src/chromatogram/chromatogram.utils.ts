@@ -1,3 +1,5 @@
+import { assertTruthy } from '@fishka/assertions';
+import { countNonGappedLength } from '../sequence/sequence.utils';
 import { ChannelSignals, Chromatogram } from './types';
 
 /** Returns a reversed copy, leaving the input untouched. */
@@ -34,5 +36,111 @@ export function reverseComplementChromatogram(chromatogram: Chromatogram): Chrom
     signals: reversedSignals,
     confidences,
     samplingRate: chromatogram.samplingRate,
+  };
+}
+
+/** One run of `count` gap columns to insert at clean-sequence base index `position`. */
+interface GapInsertion {
+  position: number;
+  count: number;
+}
+
+/** Signal samples added per inserted gap column — one flat (zero) sample, as in the source model. */
+const GAP_SAMPLE_COUNT = 1;
+
+/**
+ * Inject alignment gaps into a chromatogram so it lines up, column-for-column, with a gapped
+ * sequence from an alignment. `gappedSequence` is the read's bases with '-' gaps; the chromatogram
+ * must correspond to the same sequence *without* gaps. Each gap run adds `count` flat columns — new
+ * peak positions plus one zero sample per gap in every channel — and shifts the following peaks, so
+ * the result indexes directly against the alignment columns. Returns the input unchanged when there
+ * are no gaps.
+ */
+export function applyAlignmentGapsToChromatogram(chromatogram: Chromatogram, gappedSequence: string): Chromatogram {
+  const nonGappedLength = countNonGappedLength(gappedSequence);
+  assertTruthy(
+    chromatogram.positions.length === nonGappedLength,
+    `Chromatogram length (${chromatogram.positions.length}) doesn't match clean sequence length (${nonGappedLength}).`,
+  );
+
+  if (!gappedSequence.includes('-')) {
+    return chromatogram;
+  }
+
+  // Collect gap runs as (clean-sequence base index, length).
+  const gapsToInsert: GapInsertion[] = [];
+  let cleanPos = 0;
+  for (let i = 0; i < gappedSequence.length; i++) {
+    if (gappedSequence[i] === '-') {
+      let count = 0;
+      while (i < gappedSequence.length && gappedSequence[i] === '-') {
+        count++;
+        i++;
+      }
+      i--; // adjust for the loop increment
+      gapsToInsert.push({ position: cleanPos, count });
+    } else {
+      cleanPos++;
+    }
+  }
+
+  if (gapsToInsert.length === 0) {
+    return chromatogram;
+  }
+
+  const newPositions = [...chromatogram.positions];
+  const newConfidences = chromatogram.confidences ? [...chromatogram.confidences] : undefined;
+  const newSignals: ChannelSignals = {
+    A: [...chromatogram.signals.A],
+    C: [...chromatogram.signals.C],
+    G: [...chromatogram.signals.G],
+    T: [...chromatogram.signals.T],
+  };
+
+  // Insert from the highest base index down so earlier insertions don't shift the indices of later ones.
+  const sortedGaps = [...gapsToInsert].sort((a, b) => b.position - a.position);
+  for (const gap of sortedGaps) {
+    const { position, count } = gap;
+    assertTruthy(
+      position >= 0 && position <= newPositions.length,
+      `Invalid insertion position ${position} for a sequence of length ${newPositions.length}.`,
+    );
+
+    let insertSignalIndex: number;
+    if (position === 0) {
+      insertSignalIndex = 0;
+    } else if (position >= newPositions.length) {
+      insertSignalIndex = newSignals.A.length;
+    } else {
+      insertSignalIndex = newPositions[position];
+    }
+
+    const samplesToInsert = count * GAP_SAMPLE_COUNT;
+    const zeroSignals = new Array<number>(samplesToInsert).fill(0);
+    newSignals.A.splice(insertSignalIndex, 0, ...zeroSignals);
+    newSignals.C.splice(insertSignalIndex, 0, ...zeroSignals);
+    newSignals.G.splice(insertSignalIndex, 0, ...zeroSignals);
+    newSignals.T.splice(insertSignalIndex, 0, ...zeroSignals);
+
+    for (let i = 0; i < newPositions.length; i++) {
+      if (newPositions[i] >= insertSignalIndex) {
+        newPositions[i] += samplesToInsert;
+      }
+    }
+
+    // One new peak position per gap column: insertSignalIndex, +1, +2, ...
+    const gapPositions = Array.from({ length: count }, (_, i) => insertSignalIndex + i);
+    newPositions.splice(position, 0, ...gapPositions);
+
+    if (newConfidences) {
+      newConfidences.splice(position, 0, ...new Array<number>(count).fill(0));
+    }
+  }
+
+  return {
+    ...chromatogram,
+    positions: newPositions,
+    signals: newSignals,
+    confidences: newConfidences,
   };
 }

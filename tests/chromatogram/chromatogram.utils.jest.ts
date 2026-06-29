@@ -1,4 +1,15 @@
-import { Chromatogram, reverseComplementChromatogram } from '../../src/chromatogram';
+import { applyAlignmentGapsToChromatogram, Chromatogram, reverseComplementChromatogram } from '../../src/chromatogram';
+
+/** Build a chromatogram whose every channel is sequential 0..signalLength-1, like the source tests. */
+function createChromatogram(positions: number[], signalLength: number): Chromatogram {
+  const channel = Array.from({ length: signalLength }, (_, i) => i);
+  return {
+    positions,
+    signals: { A: [...channel], C: [...channel], G: [...channel], T: [...channel] },
+    confidences: positions.map((_, i) => i % 100),
+    samplingRate: 1,
+  };
+}
 
 describe('reverseComplementChromatogram', () => {
   // Distinct values per channel so a wrong swap or missed reverse is caught exactly.
@@ -50,5 +61,57 @@ describe('reverseComplementChromatogram', () => {
     const snapshot = JSON.parse(JSON.stringify(chromatogram));
     reverseComplementChromatogram(chromatogram);
     expect(chromatogram).toEqual(snapshot);
+  });
+});
+
+describe('applyAlignmentGapsToChromatogram', () => {
+  it('inserts leading gaps', () => {
+    const result = applyAlignmentGapsToChromatogram(createChromatogram([5, 15, 25, 35], 40), '--ATGC');
+    expect(result.positions).toEqual([0, 1, 7, 17, 27, 37]);
+    expect(result.confidences).toEqual([0, 0, 0, 1, 2, 3]);
+    expect(result.signals.A).toHaveLength(42);
+    expect(result.signals.A[0]).toBe(0); // inserted gap sample
+    expect(result.signals.A[2]).toBe(0); // original A[0], shifted by 2
+    expect(result.signals.A[7]).toBe(5); // original A[5]
+    expect(result.signals.A[41]).toBe(39); // last original sample
+  });
+
+  it('inserts internal gaps', () => {
+    const result = applyAlignmentGapsToChromatogram(createChromatogram([5, 15, 25], 30), 'A--TG');
+    expect(result.positions).toEqual([5, 15, 16, 17, 27]);
+    expect(result.confidences).toEqual([0, 0, 0, 1, 2]);
+    expect(result.signals.A).toHaveLength(32);
+    expect(result.signals.A[15]).toBe(0); // first inserted gap sample
+    expect(result.signals.A[17]).toBe(15); // original A[15], shifted by 2
+  });
+
+  it('inserts leading and internal gaps together', () => {
+    const result = applyAlignmentGapsToChromatogram(createChromatogram([5, 15, 25], 30), '-A-T-G');
+    expect(result.positions).toEqual([0, 6, 16, 17, 27, 28]);
+    expect(result.confidences).toEqual([0, 0, 0, 1, 0, 2]);
+    expect(result.signals.A).toHaveLength(33);
+  });
+
+  it('inserts consecutive internal gaps', () => {
+    const result = applyAlignmentGapsToChromatogram(createChromatogram([5, 15], 20), 'A---T');
+    expect(result.positions).toEqual([5, 15, 16, 17, 18]);
+    expect(result.confidences).toEqual([0, 0, 0, 0, 1]);
+    expect(result.signals.A).toHaveLength(23);
+  });
+
+  it('inserts trailing gaps', () => {
+    const result = applyAlignmentGapsToChromatogram(createChromatogram([5, 15], 20), 'AT--');
+    expect(result.positions).toEqual([5, 15, 20, 21]);
+    expect(result.confidences).toEqual([0, 1, 0, 0]);
+    expect(result.signals.A).toHaveLength(22);
+  });
+
+  it('returns the same chromatogram unchanged when there are no gaps', () => {
+    const chromatogram = createChromatogram([5, 15, 25, 35], 40);
+    expect(applyAlignmentGapsToChromatogram(chromatogram, 'ATGC')).toBe(chromatogram);
+  });
+
+  it('throws when the chromatogram length does not match the clean sequence', () => {
+    expect(() => applyAlignmentGapsToChromatogram(createChromatogram([5, 15], 20), 'A-TGC')).toThrow();
   });
 });

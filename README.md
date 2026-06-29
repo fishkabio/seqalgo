@@ -13,6 +13,9 @@ Currently supports:
   case-preserving) and of a chromatogram (`reverseComplementChromatogram`: swaps
   A/T and C/G channels, reverses the trace, mirrors peak positions and
   confidences; reversible, never a re-basecall).
+- **Chromatogram gap alignment** — `applyAlignmentGapsToChromatogram` injects an
+  alignment's gaps into a trace so it lines up column-for-column with a gapped
+  sequence, for stacked / aligned trace views.
 
 Planned: alignment post-processing utilities, mutation classification, consensus
 calling, heteroplasmy detection.
