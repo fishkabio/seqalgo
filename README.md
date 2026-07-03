@@ -1,5 +1,7 @@
 # @fishka/seqalgo
 
+Part of [fishka.bio](https://fishka.bio) — free browser-based bioinformatics tools.
+
 Bioinformatics algorithms over biological sequences. The algorithmic companion
 to [`@fishka/seqio`](https://www.npmjs.com/package/@fishka/seqio): `seqio` reads
 and writes sequence file formats, `seqalgo` analyses the sequences.
