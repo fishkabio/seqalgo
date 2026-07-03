@@ -2,25 +2,23 @@
 
 Part of [fishka.bio](https://fishka.bio) — free browser-based bioinformatics tools.
 
-Bioinformatics algorithms over biological sequences. The algorithmic companion
-to [`@fishka/seqio`](https://www.npmjs.com/package/@fishka/seqio): `seqio` reads
-and writes sequence file formats, `seqalgo` analyses the sequences.
+Sequence algorithms for browser and Node bioinformatics apps. It is the
+algorithmic companion to [`@fishka/seqio`](https://www.npmjs.com/package/@fishka/seqio):
+`seqio` reads and writes sequence files, `seqalgo` analyses the sequences.
 
-Currently supports:
+Current API:
 
-- **Needleman-Wunsch global alignment** — pairwise DNA alignment with the
-  EDNAFULL (NUC4.4) scoring matrix and full IUPAC ambiguity-code support. Scores
-  are 100% compatible with EMBOSS `needle`.
-- **Reverse-complement** — of a sequence (`reverseComplement`, IUPAC-aware,
-  case-preserving) and of a chromatogram (`reverseComplementChromatogram`: swaps
-  A/T and C/G channels, reverses the trace, mirrors peak positions and
-  confidences; reversible, never a re-basecall).
-- **Chromatogram gap alignment** — `applyAlignmentGapsToChromatogram` injects an
-  alignment's gaps into a trace so it lines up column-for-column with a gapped
-  sequence, for stacked / aligned trace views.
+- **Needleman-Wunsch global alignment** with EDNAFULL scoring and IUPAC
+  ambiguity-code support. Scores match EMBOSS `needle`.
+- **Sequence utilities**: gap removal/counting and IUPAC-aware reverse
+  complement.
+- **Quality trimming**: modified Mott and sliding-window trim ranges.
+- **Alignment utilities**: coordinate conversion, gap-column cleanup, pairwise
+  alignment combination, and gap-filled transforms.
+- **Chromatogram utilities**: reverse-complement traces and inject alignment
+  gaps into chromatograms.
 
-Planned: alignment post-processing utilities, mutation classification, consensus
-calling, heteroplasmy detection.
+Planned: mutation classification, consensus calling, heteroplasmy detection.
 
 ## Install
 
@@ -28,54 +26,61 @@ calling, heteroplasmy detection.
 npm install @fishka/seqalgo
 ```
 
-## Use
+## Needleman-Wunsch
 
 ```ts
 import { needleAlign } from '@fishka/seqalgo';
-// or: import { needleAlign } from '@fishka/seqalgo/needle';
 
 const result = needleAlign('GATCACAGGT', 'GATCAGGT');
+
 result.seqA; // aligned reference: "GATCACAGGT"
 result.seqB; // aligned read:      "GAT--CAGGT"
-result.score; // EMBOSS-equivalent alignment score: 29.5
+result.score; // EMBOSS-equivalent score
 ```
-
-### Options
 
 ```ts
 needleAlign(ref, read, {
-  gapOpen: 10, // EMBOSS gapopen, default 10
-  gapExtend: 0.5, // EMBOSS gapextend, default 0.5
-  gapAnchor: '5-prime', // indel placement in equally-scoring tracts, default '5-prime'
+  gapOpen: 10,
+  gapExtend: 0.5,
+  gapAnchor: '5-prime',
 });
 ```
 
-### Indel anchoring (`gapAnchor`)
+`gapAnchor` only affects where equally-scoring indels land inside
+homopolymer/repeat tracts:
 
-Alignment **scores are always identical to EMBOSS** `needle`. The option only
-affects **where indels land within homopolymer/repeat tracts**, where several
-alignments score equally:
+- `'5-prime'` (default) matches EMBOSS `needle` tie-breaking.
+- `'3-prime'` right-anchors gaps for ISFG forensic mtDNA notation.
 
-- **`'5-prime'`** (default) — gaps are left-anchored, matching the EMBOSS
-  `needle` default tie-break.
-- **`'3-prime'`** — gaps are right-anchored, per the ISFG forensic mtDNA
-  notation convention (Parson et al. 2014, §3.2). An extra C in the rCRS HV2
-  poly-C tract 303-309 is then reported at the 3' end of the run (309.1C) rather
-  than the 5' end (302.1C).
+## Sequence and quality helpers
 
 ```ts
-// rCRS HV2 fragment with an extra C in the 7-C tract (303-309) — same score,
-// different placement. The tract must be flanked on both sides for the anchoring
-// to matter; with unflanked synthetic strings a free end-gap masks the tie-break.
-const ref = 'AATTTCCACCAAACCCCCCCTCCCCCGCTTCTGGCCACAG';
-const read = 'AATTTCCACCAAACCCCCCCCTCCCCCGCTTCTGGCCACAG';
+import { mottTrim, reverseComplement, slidingWindowTrim } from '@fishka/seqalgo';
 
-needleAlign(ref, read).seqA;
-// → "AATTTCCACCAAA-CCCCCCCTCCCCCGCTTCTGGCCACAG"  (5'-anchored, default)
+reverseComplement('ACGTRY'); // "RYACGT"
 
-needleAlign(ref, read, { gapAnchor: '3-prime' }).seqA;
-// → "AATTTCCACCAAACCCCCCC-TCCCCCGCTTCTGGCCACAG"  (3'-anchored, ISFG mtDNA convention)
+mottTrim([8, 12, 30, 31, 29, 10], { cutoff: 20 }); // { start, end }
+slidingWindowTrim([8, 12, 30, 31, 29, 10], { threshold: 20, windowSize: 3 });
 ```
+
+## Alignment and chromatogram helpers
+
+```ts
+import {
+  applyAlignmentGapsToChromatogram,
+  combineAlignments,
+  removeColumnsOfGaps,
+  reverseComplementChromatogram,
+} from '@fishka/seqalgo';
+
+const cleaned = removeColumnsOfGaps(['A-C-', '--C-']);
+const combined = combineAlignments(pairwiseAlignments);
+const rc = reverseComplementChromatogram(chromatogram);
+const gappedTrace = applyAlignmentGapsToChromatogram(rc, 'AC-GT');
+```
+
+Subpath imports are available for `@fishka/seqalgo/needle`,
+`@fishka/seqalgo/sequence`, and `@fishka/seqalgo/alignment`.
 
 ## License
 
