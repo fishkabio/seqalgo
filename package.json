@@ -99,7 +99,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://gitea.com/fishka/seqalgo.git"
+    "url": "https://gitea.ramigo.org/ramigo/fishka_seqalgo.git"
   },
   "publishConfig": {
     "access": "public"

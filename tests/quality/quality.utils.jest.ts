@@ -104,7 +104,10 @@ describe('slidingWindowTrim', () => {
   it('rejects a kept region shorter than minLength', () => {
     const qualities = [...run(5, 10), ...run(40, 4), ...run(5, 10)];
     expect(slidingWindowTrim(qualities, { windowSize: 4, threshold: 20, minLength: 5 })).toEqual({ start: 0, end: 0 });
-    expect(slidingWindowTrim(qualities, { windowSize: 4, threshold: 20, minLength: 4 })).toEqual({ start: 10, end: 14 });
+    expect(slidingWindowTrim(qualities, { windowSize: 4, threshold: 20, minLength: 4 })).toEqual({
+      start: 10,
+      end: 14,
+    });
   });
 
   it('does not mutate the input', () => {

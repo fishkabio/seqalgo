@@ -5,7 +5,7 @@
  * Run with: npm run bench   (rebuilds first)
  *
  * Two scenarios:
- *   1. Realistic mtDNA HV zones (lengths as in mitoseq: HV3 ~150, HV2 ~270, HV1 ~340).
+ *   1. Realistic mtDNA HV zones (HV3 ~150, HV2 ~270, HV1 ~340).
  *   2. Scaling sweep (100 → 2000 bp) to expose the O(n*m) growth and memory cost.
  */
 
