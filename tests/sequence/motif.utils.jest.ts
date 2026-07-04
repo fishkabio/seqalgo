@@ -48,6 +48,15 @@ describe('findMotif — forward strand', () => {
   it('never matches across a gap character', () => {
     expect(findMotif('A-C', 'ANC')).toEqual([]);
   });
+
+  it('lets a degenerate query match a concrete read, but not vice-versa', () => {
+    // Query N matches any concrete read base.
+    expect(findMotif('ACGT', 'ANGT')).toEqual([fwd(0, 4)]);
+    // An ambiguous read base (N) does NOT match a concrete query position — no locator hit over unknowns.
+    expect(findMotif('ANGT', 'ACGT')).toEqual([]);
+    // N in both is fine (query N admits everything the read N could be).
+    expect(findMotif('ANGT', 'ANGT')).toEqual([fwd(0, 4)]);
+  });
 });
 
 describe('findMotif — homopolymer / periodic merging', () => {

@@ -38,14 +38,18 @@ function compileMotif(query: string): Set<string>[] {
   });
 }
 
-/** Tells whether the base at `sequence[index]` is IUPAC-compatible with the allowed set (non-empty overlap). */
+/**
+ * Tells whether a read base matches an allowed (query) set. Subset semantics: the query may be degenerate,
+ * but an ambiguous read base (e.g. `N` = A/C/G/T) does NOT match a more specific query position — a locator
+ * must not report unresolved bases as hits. A concrete read base matches iff the query admits it.
+ */
 function baseMatches(base: string, allowed: Set<string>): boolean {
   const bases = IUPAC_NUCLEOTIDES_LIST[base.toUpperCase()];
   if (!bases) return false; // Gaps and unknown symbols match nothing.
   for (const b of bases) {
-    if (allowed.has(b)) return true;
+    if (!allowed.has(b)) return false;
   }
-  return false;
+  return true;
 }
 
 /** Collects every start index where the compiled motif matches, allowing overlaps. */
