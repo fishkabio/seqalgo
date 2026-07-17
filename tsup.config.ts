@@ -6,6 +6,8 @@ export default defineConfig({
     'needle/index': 'src/needle/index.ts',
     'sequence/index': 'src/sequence/index.ts',
     'alignment/index': 'src/alignment/index.ts',
+    'translation/index': 'src/translation/index.ts',
+    'orf/index': 'src/orf/index.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,

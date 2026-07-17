@@ -1,4 +1,5 @@
 import {
+  complement,
   countLeadingGaps,
   countNonGappedLength,
   removeGaps,
@@ -126,5 +127,40 @@ describe('reverseComplement', () => {
 
   it('handles empty string', () => {
     expect(reverseComplement('')).toBe('');
+  });
+});
+
+describe('complement', () => {
+  it('complements A/T/G/C without reversing order', () => {
+    expect(complement('ATCG')).toBe('TAGC');
+    expect(complement('AAAA')).toBe('TTTT');
+    expect(complement('GGCC')).toBe('CCGG');
+  });
+
+  it('complements all IUPAC ambiguity codes (R↔Y, K↔M, B↔V, D↔H; S/W/N self)', () => {
+    expect(complement('R')).toBe('Y');
+    expect(complement('Y')).toBe('R');
+    expect(complement('RYKM')).toBe('YRMK');
+    expect(complement('BVDH')).toBe('VBHD');
+    expect(complement('SWN')).toBe('SWN');
+  });
+
+  it('preserves case (soft-masking survives)', () => {
+    expect(complement('atcg')).toBe('tagc');
+    expect(complement('aTcG')).toBe('tAgC');
+  });
+
+  it('preserves N and gaps', () => {
+    expect(complement('N')).toBe('N');
+    expect(complement('ATN')).toBe('TAN');
+    expect(complement('AT-CG')).toBe('TA-GC');
+  });
+
+  it('passes characters not in the table through unchanged', () => {
+    expect(complement('A*')).toBe('T*');
+  });
+
+  it('handles empty string', () => {
+    expect(complement('')).toBe('');
   });
 });

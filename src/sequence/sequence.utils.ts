@@ -80,3 +80,17 @@ export function reverseComplement(sequence: string): string {
   }
   return out.join('');
 }
+
+/**
+ * Complements a DNA sequence WITHOUT reversing it (order preserved). Uses the same table as
+ * {@link reverseComplement}: all IUPAC codes complemented, case preserved, gap kept, unknown
+ * characters pass through unchanged.
+ */
+export function complement(sequence: string): string {
+  const out = new Array<string>(sequence.length);
+  for (let i = 0; i < sequence.length; i++) {
+    const ch = sequence[i];
+    out[i] = COMPLEMENT.get(ch) ?? ch;
+  }
+  return out.join('');
+}
